@@ -1,0 +1,224 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1033{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\*\generator Riched20 6.3.9600}\viewkind4\uc1 
+\pard\sa200\sl276\slmult1\f0\fs22\lang9  #define currentPin1     A0\par
+#define currentPin2     A1\par
+#define currentPin3     A2\par
+#define lineVoltagePin  A3\par
+#define buzzer          13\par
+\par
+#include "ACS712.h"\par
+ACS712 sensor1 (ACS712_05B, currentPin1);\par
+ACS712 sensor2 (ACS712_05B, currentPin2);\par
+ACS712 sensor3 (ACS712_05B, currentPin3);\par
+\par
+#include <Wire.h>\par
+#include <LiquidCrystal_I2C.h>\par
+LiquidCrystal_I2C lcd (0x3F, 16, 2);\par
+\par
+#include <SoftwareSerial.h>\par
+SoftwareSerial nodeMCUSerial (10, 11);\par
+\par
+#include <TimerOne.h>\par
+#include <EEPROM.h>\par
+\par
+float lineCurrent_A = 0, linePower_A = 0, unit_in_Wh_A = 0, presentPW_A = 0, previousWH_A = 0, totalUnit_A = 0;\par
+float lineCurrent_B = 0, linePower_B = 0, unit_in_Wh_B = 0, presentPW_B = 0, previousWH_B = 0, totalUnit_B = 0;\par
+float lineCurrent_C = 0, linePower_C = 0, unit_in_Wh_C = 0, presentPW_C = 0, previousWH_C = 0, totalUnit_C = 0;\par
+float Acum_avg = 0, Bcum_avg = 0, Ccum_avg = 0, A_avg_pow = 0, B_avg_pow = 0, C_avg_pow = 0;  \par
+float lineVoltAvg = 0, lineVoltage = 0;\par
+int count = 0, runningFlag;\par
+\par
+void timerIsr()\{\par
+  count ++;\par
+  if (count == 10)\{\par
+    Timer1.detachInterrupt ();\par
+    count = 0;\par
+//    Serial.println (String (lineVoltage) + "," + String (A_avg_pow) + "," + String (unit_in_Wh_A) + "," + String (B_avg_pow) + "," + String (unit_in_Wh_B) + "," + String (C_avg_pow) + "," + String (unit_in_Wh_C));\par
+    if (nodeMCUSerial.available() > 0) \{\par
+      char inByte = nodeMCUSerial.read();\par
+      if (inByte == 'R') \{\par
+//        Serial.println (String (lineVoltage) + "," + String (A_avg_pow) + "," + String (unit_in_Wh_A) + "," + String (B_avg_pow) + "," + String (unit_in_Wh_B) + "," + String (C_avg_pow) + "," + String (unit_in_Wh_C));\par
+        nodeMCUSerial.print ("*" + String (lineVoltage) + "," + String (A_avg_pow) + "," + String (unit_in_Wh_A) + "," + String (B_avg_pow) + "," + String (unit_in_Wh_B) + "," + String (C_avg_pow) + "," + String (unit_in_Wh_C) + "#");\par
+       \par
+        delay (10);\par
+      \}\par
+    \}\par
+\par
+    if (linePower_A != 0)\{\par
+      presentPW_A = linePower_A / 3600;\par
+      EEPROM.get(0, unit_in_Wh_A);\par
+      unit_in_Wh_A = unit_in_Wh_A + presentPW_A;\par
+      EEPROM.put(0, unit_in_Wh_A);\par
+    \}\par
+\par
+    if (linePower_B != 0)\{\par
+      presentPW_B = linePower_B / 3600;\par
+      EEPROM.get(10, unit_in_Wh_B);\par
+      unit_in_Wh_B = unit_in_Wh_B + presentPW_B;\par
+      EEPROM.put(10, unit_in_Wh_B);\par
+    \}\par
+\par
+    if (linePower_C != 0)\{\par
+      presentPW_C = linePower_C / 3600;\par
+      EEPROM.get(20, unit_in_Wh_C);\par
+      unit_in_Wh_C = unit_in_Wh_C + presentPW_C;\par
+      EEPROM.put(20, unit_in_Wh_C);\par
+    \}\par
+   \par
+    Timer1.attachInterrupt( timerIsr );\par
+  \}\par
+\}\par
+\par
+void setup () \{\par
+  Serial.begin (9600);\par
+  nodeMCUSerial.begin (9600);\par
+\par
+  pinMode (buzzer, OUTPUT);\par
+  digitalWrite (buzzer, LOW);\par
+\par
+  lcd.init();\par
+  lcd.backlight();\par
+  lcd.setCursor(0,0);\par
+  lcd.print ("  Smart  Meter  ");\par
+  lcd.setCursor(0,1);\par
+  lcd.print ("     System     ");\par
+  delay (2500);\par
+ \par
+  lcd.clear ();\par
+  lcd.setCursor (0, 0);\par
+  lcd.print (" Wifi  synching ");\par
+\par
+  nodeMCUSerial.print ("^");\par
+  int wait = 1;\par
+  while(wait == 1)\{\par
+    if(nodeMCUSerial.available() > 0)\{\par
+      if(nodeMCUSerial.read() == '^')\{\par
+        wait = 0;\par
+       \par
+        digitalWrite (buzzer, HIGH);\par
+        delay (75);\par
+        digitalWrite (buzzer, LOW);\par
+      \}\par
+    \}\par
+  \}\par
+\par
+  lcd.clear ();\par
+  lcd.setCursor (0, 0);\par
+  lcd.print (" Wifi connected ");\par
+  delay (1500);\par
+  lcd.setCursor (0, 0);\par
+  lcd.print (" Connecting db  ");\par
+ \par
+  nodeMCUSerial.print ("^");\par
+  wait = 1;\par
+  while(wait == 1)\{\par
+    if(nodeMCUSerial.available() > 0)\{\par
+      if(nodeMCUSerial.read() == '^')\{\par
+        wait = 0;\par
+       \par
+        digitalWrite (buzzer, HIGH);\par
+        delay (75);\par
+        digitalWrite (buzzer, LOW);\par
+      \}\par
+    \}\par
+  \}\par
+\par
+  lcd.clear ();\par
+  lcd.setCursor (0, 0);\par
+  lcd.print ("  db connected  ");\par
+  delay (1500);\par
+ \par
+  lcd.clear ();\par
+  lcd.setCursor (0, 0);\par
+  lcd.print (" Calibrating... ");\par
+ \par
+  sensor1.calibrate ();\par
+  sensor2.calibrate ();\par
+  sensor3.calibrate ();\par
+  delay (1000);\par
+\par
+  EEPROM.get (0, unit_in_Wh_A);\par
+  EEPROM.get (10, unit_in_Wh_B);\par
+  EEPROM.get (20, unit_in_Wh_C);\par
+ \par
+  Timer1.initialize (100000);\par
+  Timer1.attachInterrupt ( timerIsr );\par
+  nodeMCUSerial.print ("^");\par
+  lcd.clear ();\par
+\}\par
+\par
+void loop() \{\par
+  if (nodeMCUSerial.available() > 0) \{\par
+    char inByte = nodeMCUSerial.read();\par
+    if (inByte == 'R') \{\par
+//      Serial.println (String (lineVoltage) + "," + String (A_avg_pow) + "," + String (unit_in_Wh_A) + "," + String (B_avg_pow) + "," + String (unit_in_Wh_B) + "," + String (C_avg_pow) + "," + String (unit_in_Wh_C));\par
+      nodeMCUSerial.print ("*" + String (lineVoltage) + "," + String (A_avg_pow) + "," + String (unit_in_Wh_A) + "," + String (B_avg_pow) + "," + String (unit_in_Wh_B) + "," + String (C_avg_pow) + "," + String (unit_in_Wh_C) + "#");\par
+       \par
+      delay (10);\par
+    \}\par
+  \}\par
+ \par
+//  lineVoltage = analogRead (lineVoltagePin);\par
+//  lineVoltage = map (lineVoltage, 0, 1024, 0, 480) + 0;\par
+\par
+  Acum_avg = 0, Bcum_avg = 0, Ccum_avg = 0;\par
+  for (int x = 0; x < 20; x++) \{\par
+    if (nodeMCUSerial.available() > 0) \{\par
+      char inByte = nodeMCUSerial.read();\par
+      if (inByte == 'R') \{\par
+//        Serial.println (String (lineVoltage) + "," + String (A_avg_pow) + "," + String (unit_in_Wh_A) + "," + String (B_avg_pow) + "," + String (unit_in_Wh_B) + "," + String (C_avg_pow) + "," + String (unit_in_Wh_C));\par
+        nodeMCUSerial.print ("*" + String (lineVoltage) + "," + String (A_avg_pow) + "," + String (unit_in_Wh_A) + "," + String (B_avg_pow) + "," + String (unit_in_Wh_B) + "," + String (C_avg_pow) + "," + String (unit_in_Wh_C) + "#");\par
+       \par
+        delay (10);\par
+      \}\par
+    \}\par
+   \par
+    lineVoltage = analogRead (lineVoltagePin);\par
+    lineVoltage = map (lineVoltage, 0, 1024, 0, 480) + 0;\par
+   \par
+    lineCurrent_A = sensor1.getCurrentAC() + 0.04;\par
+    lineCurrent_B = sensor2.getCurrentAC() - 0.00;\par
+    lineCurrent_C = sensor3.getCurrentAC() - 6.61;\par
+//    float linec = lineCurrent_C - 6.50;\par
+    if (lineCurrent_A <= 0.20) \{\par
+      lineCurrent_A = 0;\par
+    \}\par
+    if (lineCurrent_B <= 0.14) \{\par
+      lineCurrent_B = 0;\par
+    \}\par
+    if (lineCurrent_C <= 0.03) \{\par
+      lineCurrent_C = 0;\par
+    \}\par
+\par
+    linePower_A = lineVoltage * lineCurrent_A * 0.85;\par
+    linePower_B = lineVoltage * lineCurrent_B * 0.85;\par
+    linePower_C = (lineVoltage * lineCurrent_C * 0.85);\par
+ \par
+    Acum_avg = Acum_avg + linePower_A;\par
+    Bcum_avg = Bcum_avg + linePower_B;\par
+    Ccum_avg = Ccum_avg + linePower_C;\par
+//    Serial.println (String (x) + ", " + String (lineVoltage) + ", " + String (lineCurrent_A) + ", " + String (lineCurrent_B) + ", " + String (lineCurrent_C) + "," + String (linec));\par
+  \}\par
+  Serial.println ("");\par
+\par
+  A_avg_pow = Acum_avg / 20;\par
+  B_avg_pow = Bcum_avg / 20;\par
+  C_avg_pow = Ccum_avg / 20;\par
+ \par
+  lcd.setCursor (0, 0);\par
+  lcd.print("                ");\par
+  lcd.setCursor (0, 0);\par
+  lcd.print(A_avg_pow);\par
+  lcd.setCursor (8, 0);\par
+  lcd.print(B_avg_pow);\par
+ \par
+  lcd.setCursor (0, 1);\par
+  lcd.print("                ");\par
+  lcd.setCursor (0, 1);\par
+  lcd.print(C_avg_pow);\par
+  lcd.setCursor (8, 1);\par
+  lcd.print(lineVoltage);\par
+  delay(250);\par
+\}\par
+}
+ 
